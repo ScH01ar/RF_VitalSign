@@ -76,10 +76,15 @@ if __name__ == '__main__':
     all_p_MSE_hr = {"amb":{"all":[],"fb":[], "lr":[]},
              "per":{"1m":[],"2m":[], "3m":[]},
              "ran":{"1m":[],"2m":[], "3m":[]}} 
+    all_p_MSE_rr = {"amb":{"all":[],"fb":[], "lr":[]},
+             "per":{"1m":[],"2m":[], "3m":[]},
+             "ran":{"1m":[],"2m":[], "3m":[]}} 
 
 
     average = [[],[], []] # static, move, all
+    average_rr = [] # rr all
     hr_range = [[], []] # start HR range, max HR
+    rr_range = [[], []] # start RR range, max RR
     
     # output excel
     output_result = {"Tester":[], 
@@ -93,6 +98,16 @@ if __name__ == '__main__':
                      "First HR":[],
                      "Max HR":[],
                      }
+    if MODEL_OUTPUT >= 2:
+        output_result.update({
+            "RR(GT)": [],
+            "RR(Pred)": [],
+            "static RR error": [],
+            "move RR error": [],
+            "RR error": [],
+            "First RR": [],
+            "Max RR": [],
+        })
     
     # Cross-validation len(name_labels)
     all_data_length = len(name_labels)
@@ -230,11 +245,10 @@ if __name__ == '__main__':
             if EMA_NUM!=-1:
                 tmp_predict = []
                 for ti in range(val_predict.shape[1]):
-                    pre = val_predict[:, ti, 0]
-                    tmp = pd.DataFrame(pre)
+                    tmp = pd.DataFrame(val_predict[:, ti, :])
                     tmp = tmp.ewm(span=EMA_NUM).mean()
-                    tmp_predict.append(tmp)
-                val_predict = np.array(tmp_predict)
+                    tmp_predict.append(tmp.to_numpy())
+                val_predict = np.array(tmp_predict, dtype=float)
 
             val_targets = np.transpose(val_targets, (1, 0, 2))
             if not (EMA_NUM!=-1): val_predict = np.transpose(val_predict, (1, 0, 2))
@@ -243,16 +257,29 @@ if __name__ == '__main__':
                 draw_graph(test_path_array, Save_result_folder, PowerTest, VitalTest, val_predict, 1, yaml_path=YAML_PATH)
 
 
+            has_rr = MODEL_OUTPUT >= 2 and val_predict.shape[2] >= 2 and val_targets.shape[2] >= 2
             hr_all, hr_static, hr_move = 0, 0, 0
             s_count, m_count = 0, 0
             for pi in range(val_predict.shape[0]):
                 path = test_path_array[pi]
                 first_hr = val_predict[pi, 0, 0]
                 max_hr = np.max(val_predict[pi,:, 0])
-                print("Test {0} , \nPredict value: Start HR: {1:.2f}, Max: {2:.2f}".format(pi+1, first_hr, max_hr))
+                if has_rr:
+                    first_rr = val_predict[pi, 0, 1]
+                    max_rr = np.max(val_predict[pi,:, 1])
+                    print(
+                        "Test {0} , \nPredict value: Start HR: {1:.2f}, Max: {2:.2f} | Start RR: {3:.2f}, Max: {4:.2f}".format(
+                            pi + 1, first_hr, max_hr, first_rr, max_rr
+                        )
+                    )
+                else:
+                    print("Test {0} , \nPredict value: Start HR: {1:.2f}, Max: {2:.2f}".format(pi+1, first_hr, max_hr))
 
                 hr_range[0].append(first_hr)
                 hr_range[1].append(max_hr)
+                if has_rr:
+                    rr_range[0].append(first_rr)
+                    rr_range[1].append(max_rr)
                                    
                 error_hr = np.abs(np.subtract(val_predict[pi,:, 0], val_targets[pi,:, 0]))
                 front_error_hr = error_hr[:110]
@@ -261,6 +288,13 @@ if __name__ == '__main__':
                 static_error = np.mean(front_error_hr)
                 move_error = np.mean(end_error_hr)
                 error_hr = np.mean(error_hr)
+                if has_rr:
+                    error_rr = np.abs(np.subtract(val_predict[pi,:, 1], val_targets[pi,:, 1]))
+                    front_error_rr = error_rr[:110]
+                    end_error_rr = error_rr[110:]
+                    static_error_rr = np.mean(front_error_rr)
+                    move_error_rr = np.mean(end_error_rr)
+                    error_rr = np.mean(error_rr)
 
                 hr_all += error_hr
                 
@@ -270,7 +304,10 @@ if __name__ == '__main__':
                 hr_move += move_error
                 m_count +=1
                 
-                print("HR Error : {:.2f}".format(error_hr))
+                if has_rr:
+                    print("HR Error : {:.2f} | RR Error : {:.2f}".format(error_hr, error_rr))
+                else:
+                    print("HR Error : {:.2f}".format(error_hr))
 
                 model_list[test_name[0]] = model
                 if s_count!=0:
@@ -278,10 +315,16 @@ if __name__ == '__main__':
                 if m_count!=0:
                     average[1].append(hr_move/m_count)  
                 average[2].append(error_hr)
+                if has_rr:
+                    average_rr.append(error_rr)
 
                 p_test_hr = {"amb":{"all":[],"fb":[], "lr":[]},
                         "per":{"1m":[],"2m":[], "3m":[]},
                         "ran":{"1m":[],"2m":[], "3m":[]}}
+                if has_rr:
+                    p_test_rr = {"amb":{"all":[],"fb":[], "lr":[]},
+                            "per":{"1m":[],"2m":[], "3m":[]},
+                            "ran":{"1m":[],"2m":[], "3m":[]}}
 
 
                 entry_m, entry_r = "", ""
@@ -322,6 +365,8 @@ if __name__ == '__main__':
                             entry_r = "3m"
 
                 p_test_hr[entry_m][entry_r].append(error_hr)
+                if has_rr:
+                    p_test_rr[entry_m][entry_r].append(error_rr)
                 # output excel
                 
                 output_result['Tester'].append(name_labels[i])
@@ -334,6 +379,14 @@ if __name__ == '__main__':
                 output_result['HR error'].append("{0:.2f}".format(error_hr))
                 output_result['First HR'].append("{0:.2f}".format(first_hr))
                 output_result['Max HR'].append("{0:.2f}".format(max_hr))
+                if has_rr:
+                    output_result['RR(GT)'].append(trans_list2str(val_targets[pi,:, 1]))
+                    output_result['RR(Pred)'].append(trans_list2str(val_predict[pi,:, 1]))
+                    output_result['static RR error'].append("{0:.2f}".format(static_error_rr))
+                    output_result['move RR error'].append("{0:.2f}".format(move_error_rr))
+                    output_result['RR error'].append("{0:.2f}".format(error_rr))
+                    output_result['First RR'].append("{0:.2f}".format(first_rr))
+                    output_result['Max RR'].append("{0:.2f}".format(max_rr))
 
                 p_average_hr = (hr_all/val_predict.shape[0])         
                 average[0].append(p_average_hr)
@@ -346,13 +399,20 @@ if __name__ == '__main__':
                         if len(data) != 0:
                             sum_r = np.mean(np.array(data))
                             all_p_MSE_hr[m][r].append(sum_r)
+                if has_rr:
+                    for m in p_test_rr:
+                        for r in p_test_rr[m]:
+                            data = p_test_rr[m][r]
+                            if len(data) != 0:
+                                sum_r = np.mean(np.array(data))
+                                all_p_MSE_rr[m][r].append(sum_r)
             
             
             print("Output excel...\n")
             df = pd.DataFrame(output_result)
             writer = pd.ExcelWriter(EXCEL_NAME, engine='xlsxwriter')
             df.to_excel(writer, index=False)
-            writer.save()
+            writer.close()
             print("---------------------------------\n")
     if STORE_EXCEL:
         {"amb":{"all":[],"fb":[], "lr":[]},
@@ -397,6 +457,44 @@ if __name__ == '__main__':
         
         writer = pd.ExcelWriter(EXCEL_NAME, engine='xlsxwriter')
         df1.to_excel(writer, sheet_name="Result",index=False)
+        if MODEL_OUTPUT >= 2 and len(average_rr) != 0:
+            amb_all, amb_all_c = np.sum(all_p_MSE_rr["amb"]['all']), len(all_p_MSE_rr["amb"]['all'])
+            amb_fb, amb_fb_c = np.sum(all_p_MSE_rr["amb"]['fb']), len(all_p_MSE_rr["amb"]['fb'])
+            amb_lr, amb_lr_c = np.sum(all_p_MSE_rr["amb"]['lr']), len(all_p_MSE_rr["amb"]['lr'])
+
+            per_1, per_1_c = np.sum(all_p_MSE_rr["per"]['1m']), len(all_p_MSE_rr["per"]['1m'])
+            per_2, per_2_c = np.sum(all_p_MSE_rr["per"]['2m']), len(all_p_MSE_rr["per"]['2m'])
+            per_3, per_3_c = np.sum(all_p_MSE_rr["per"]['3m']), len(all_p_MSE_rr["per"]['3m'])
+
+            ran_1, ran_1_c = np.sum(all_p_MSE_rr["ran"]['1m']), len(all_p_MSE_rr["ran"]['1m'])
+            ran_2, ran_2_c = np.sum(all_p_MSE_rr["ran"]['2m']), len(all_p_MSE_rr["ran"]['2m'])
+            ran_3, ran_3_c = np.sum(all_p_MSE_rr["ran"]['3m']), len(all_p_MSE_rr["ran"]['3m'])
+
+            output_result_rr = {}
+            output_result_rr["amb_range"] = ["all", "fb", "lr", "Avg"]
+            output_result_rr["ambulant"] = [
+                "{0:.2f}".format(amb_all/amb_all_c),
+                "{0:.2f}".format(amb_fb/amb_fb_c),
+                "{0:.2f}".format(amb_lr/amb_lr_c),
+                "{0:.2f}".format((amb_all+amb_fb+amb_lr)/(amb_all_c+amb_fb_c+amb_lr_c)),
+            ]
+            output_result_rr["motion_range"] = ["1m", "2m", "3m", "Avg"]
+            output_result_rr["perical"] = [
+                "{0:.2f}".format(per_1/per_1_c),
+                "{0:.2f}".format(per_2/per_2_c),
+                "{0:.2f}".format(per_3/per_3_c),
+                "{0:.2f}".format((per_1+per_2+per_3)/(per_1_c+per_2_c+per_3_c)),
+            ]
+            output_result_rr["random"] = [
+                "{0:.2f}".format(ran_1/ran_1_c),
+                "{0:.2f}".format(ran_2/ran_2_c),
+                "{0:.2f}".format(ran_3/ran_3_c),
+                "{0:.2f}".format((ran_1+ran_2+ran_3)/(ran_1_c+ran_2_c+ran_3_c)),
+            ]
+            output_result_rr["All"] = [" ", " ", " ", "{0:.2f}".format(np.mean(average_rr))]
+
+            df_rr = pd.DataFrame(output_result_rr)
+            df_rr.to_excel(writer, sheet_name="Result_RR", index=False)
         df.to_excel(writer, sheet_name="All",index=False)
         writer.close()
 

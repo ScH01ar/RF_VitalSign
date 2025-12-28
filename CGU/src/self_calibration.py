@@ -123,8 +123,8 @@ def vital_cali(excel_path):
     df = pd.read_excel(excel_path, sheet_name="All")
     length = len(df['Tester'])
 
-    new_df = {i:[] for i in df}
-    # print(new_df)
+    has_rr = 'RR(GT)' in df.columns and 'RR(Pred)' in df.columns
+    new_df = {col: [] for col in df.columns}
 
     p = 0.4
     for i in range(length):
@@ -133,27 +133,54 @@ def vital_cali(excel_path):
         range_raw = df['range'][i]
 
         hr_gt_raw = df['HR(GT)'][i]
+        hr_pred_raw = df['HR(Pred)'][i]
 
-        hr_gt = np.array(trans_str2list(df['HR(GT)'][i]))
-        hr_pred = np.array(trans_str2list(df['HR(Pred)'][i]))
+        hr_gt = np.array(trans_str2list(hr_gt_raw))
+        hr_pred = np.array(trans_str2list(hr_pred_raw))
 
-        Dh = np.mean(hr_pred[:50]) - np.mean(hr_gt[:50])
+        dh = np.mean(hr_pred[:50]) - np.mean(hr_gt[:50])
+        hr_pred = hr_pred - dh * p
 
-        hr_pred = hr_pred - Dh*p
-        
-        error = np.sum(np.abs(hr_gt[:]-hr_pred[:]))/len(hr_gt[:])
+        hr_error_seq = np.abs(hr_gt - hr_pred)
+        hr_static_error = np.mean(hr_error_seq[:110])
+        hr_move_error = np.mean(hr_error_seq[110:])
+        hr_error = np.mean(hr_error_seq)
 
-        # New setting
-        new_df['Tester'].append(tester)
-        new_df['motion'].append(motion)        
-        new_df['range'].append(range_raw)
-        new_df['HR(GT)'].append(hr_gt_raw)
-        new_df['HR(Pred)'].append(trans_list2str(hr_pred))
-        new_df['static HR error'].append(np.mean(np.abs(hr_gt[:110]-hr_pred[:110])))
-        new_df['move HR error'].append(error)
-        new_df['HR error'].append(error)
-        new_df['First HR'].append(hr_pred[0])
-        new_df['Max HR'].append(np.max(hr_pred))
+        # Copy-through defaults for any extra columns.
+        for col in df.columns:
+            new_df[col].append(df[col][i])
+
+        # Overwrite calibrated predictions + re-computed errors.
+        new_df['HR(GT)'][-1] = hr_gt_raw
+        new_df['HR(Pred)'][-1] = trans_list2str(hr_pred)
+        new_df['static HR error'][-1] = hr_static_error
+        new_df['move HR error'][-1] = hr_move_error
+        new_df['HR error'][-1] = hr_error
+        new_df['First HR'][-1] = hr_pred[0]
+        new_df['Max HR'][-1] = np.max(hr_pred)
+
+        if has_rr:
+            rr_gt_raw = df['RR(GT)'][i]
+            rr_pred_raw = df['RR(Pred)'][i]
+
+            rr_gt = np.array(trans_str2list(rr_gt_raw))
+            rr_pred = np.array(trans_str2list(rr_pred_raw))
+
+            dr = np.mean(rr_pred[:50]) - np.mean(rr_gt[:50])
+            rr_pred = rr_pred - dr * p
+
+            rr_error_seq = np.abs(rr_gt - rr_pred)
+            rr_static_error = np.mean(rr_error_seq[:110])
+            rr_move_error = np.mean(rr_error_seq[110:])
+            rr_error = np.mean(rr_error_seq)
+
+            new_df['RR(GT)'][-1] = rr_gt_raw
+            new_df['RR(Pred)'][-1] = trans_list2str(rr_pred)
+            new_df['static RR error'][-1] = rr_static_error
+            new_df['move RR error'][-1] = rr_move_error
+            new_df['RR error'][-1] = rr_error
+            new_df['First RR'][-1] = rr_pred[0]
+            new_df['Max RR'][-1] = np.max(rr_pred)
 
 
     err_all = np.array(new_df['HR error'], dtype=float)
@@ -216,13 +243,77 @@ def vital_cali(excel_path):
 
     output_result1['All'] = [" ", " ", " ", "{0:.2f}".format(np.mean(err_all))]
 
-
-
-    df = pd.DataFrame(new_df)
+    df_out = pd.DataFrame(new_df)
     df1 = pd.DataFrame(output_result1)
+
     writer = pd.ExcelWriter(output_name, engine='xlsxwriter')
     df1.to_excel(writer, sheet_name="Result", index=False)
-    df.to_excel(writer, sheet_name="All", index=False)
+    df_out.to_excel(writer, sheet_name="All", index=False)
+
+    if has_rr:
+        err_rr_all = np.array(new_df['RR error'], dtype=float)
+
+        amb_rr = [[], [], [], []] # All, all, fb, lr
+        per_rr = [[], [], [], []] # All, 1m, 2m, 3m
+        ran_rr = [[], [], [], []] # All, 1m, 2m, 3m
+
+        for i in range(length):
+            motion = df['motion'][i]
+            range_str = df['range'][i]
+            err = err_rr_all[i]
+            if "amb" in motion:
+                amb_rr[0].append(err)
+                if "all" in range_str:
+                    amb_rr[1].append(err)
+                elif "fb" in range_str:
+                    amb_rr[2].append(err)
+                elif "lr" in range_str:
+                    amb_rr[3].append(err)
+
+            if "per" in motion:
+                per_rr[0].append(err)
+                if "1m" in range_str:
+                    per_rr[1].append(err)
+                elif "2m" in range_str:
+                    per_rr[2].append(err)
+                elif "3m" in range_str:
+                    per_rr[3].append(err)
+
+            if "ran" in motion:
+                ran_rr[0].append(err)
+                if "1m" in range_str:
+                    ran_rr[1].append(err)
+                elif "2m" in range_str:
+                    ran_rr[2].append(err)
+                elif "3m" in range_str:
+                    ran_rr[3].append(err)
+
+        output_result_rr = {}
+        output_result_rr["amb_range"] = ["all", "fb", "lr", "Avg"]
+        output_result_rr["ambulant"] = [
+            "{0:.2f}".format(np.mean(amb_rr[1])),
+            "{0:.2f}".format(np.mean(amb_rr[2])),
+            "{0:.2f}".format(np.mean(amb_rr[3])),
+            "{0:.2f}".format(np.mean(amb_rr[0])),
+        ]
+        output_result_rr["motion_range"] = ["1m", "2m", "3m", "Avg"]
+        output_result_rr["perical"] = [
+            "{0:.2f}".format(np.mean(per_rr[1])),
+            "{0:.2f}".format(np.mean(per_rr[2])),
+            "{0:.2f}".format(np.mean(per_rr[3])),
+            "{0:.2f}".format(np.mean(per_rr[0])),
+        ]
+        output_result_rr["random"] = [
+            "{0:.2f}".format(np.mean(ran_rr[1])),
+            "{0:.2f}".format(np.mean(ran_rr[2])),
+            "{0:.2f}".format(np.mean(ran_rr[3])),
+            "{0:.2f}".format(np.mean(ran_rr[0])),
+        ]
+        output_result_rr["All"] = [" ", " ", " ", "{0:.2f}".format(np.mean(err_rr_all))]
+
+        df_rr = pd.DataFrame(output_result_rr)
+        df_rr.to_excel(writer, sheet_name="Result_RR", index=False)
+
     writer.close()
     
     print("Output calibration excel:", output_name)

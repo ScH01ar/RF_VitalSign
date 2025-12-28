@@ -21,6 +21,6 @@ lstm:
   num_layers: 2
   nums_ada_epoch: 5
   nums_epoch: 1000
-  output_size: 1
+  output_size: 2
 output_excel_name: ../result/Baseline/excel/0819_i2pd_e1000_d0.5.xlsx
 smooth: 5

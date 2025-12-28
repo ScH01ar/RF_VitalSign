@@ -45,53 +45,74 @@ def draw_graph(pathArray, result_folder, power, ground_truth, predict, mode = 0,
         elif power.shape[2] >= 2:
             distance_i = power[i, :, 1]
             
-        hr_i = ground_truth[i,:,0] # hr
-        # rr_i = ground_truth[i,:,1] # rr
-        pre_hr_i = predict[i,:,0] # predict hr
-        # pre_rr_i = predict[i,:,1] # predict rr
-        
-        # plotting the line hr points 
-        plt.figure(figsize=(15, 15))
+        has_rr = (
+            len(ground_truth.shape) >= 3
+            and len(predict.shape) >= 3
+            and ground_truth.shape[2] >= 2
+            and predict.shape[2] >= 2
+        )
 
-        # plt.subplot(211)
-        plt.subplot(411)
-        plt.plot(hr_i, label = "HR", color="red")
-        plt.plot(pre_hr_i, label = "pre HR", color="orange")
-        plt.xlabel('time')
-        plt.ylabel('Heart rate')
-        plt.title("heart rate", fontsize=8, color='red')   
-        plt.legend()
-        
-        plt.subplot(412)
-        plt.plot(power_i, label = "Power", color="blue")
-        plt.xlabel('time')
-        plt.title("power", fontsize=8, color='blue')   
-        plt.legend()
-        plt.tight_layout()
+        hr_i = ground_truth[i,:,0] # hr
+        pre_hr_i = predict[i,:,0] # predict hr
+
+        # Decide subplot layout dynamically.
+        rows = 1  # HR
+        if has_rr:
+            rows += 1  # RR
+        rows += 1  # Power
         if power.shape[2] >= 2:
-            plt.subplot(413)
-            plt.plot(distance_i, label = "Distance", color="blue")
-            plt.xlabel('time')
-            plt.title("Distance", fontsize=8, color='blue')   
+            rows += 1  # Distance
+        if power.shape[2] >= 3:
+            rows += 1  # Move weight
+
+        plt.figure(figsize=(15, max(6, 3.2 * rows)))
+
+        idx = 1
+        plt.subplot(rows, 1, idx)
+        idx += 1
+        plt.plot(hr_i, label="HR", color="red")
+        plt.plot(pre_hr_i, label="pred HR", color="orange")
+        plt.xlabel("time")
+        plt.ylabel("Heart rate (BPM)")
+        plt.title("heart rate", fontsize=8, color="red")
+        plt.legend()
+
+        if has_rr:
+            rr_i = ground_truth[i,:,1] # rr
+            pre_rr_i = predict[i,:,1] # predict rr
+            plt.subplot(rows, 1, idx)
+            idx += 1
+            plt.plot(rr_i, label="RR", color="green")
+            plt.plot(pre_rr_i, label="pred RR", color="orange")
+            plt.xlabel("time")
+            plt.ylabel("Respiration rate (BPM)")
+            plt.title("respiration rate", fontsize=8, color="green")
             plt.legend()
-            plt.tight_layout()
+
+        plt.subplot(rows, 1, idx)
+        idx += 1
+        plt.plot(power_i, label="Power", color="blue")
+        plt.xlabel("time")
+        plt.title("power", fontsize=8, color="blue")
+        plt.legend()
+
+        if power.shape[2] >= 2:
+            plt.subplot(rows, 1, idx)
+            idx += 1
+            plt.plot(distance_i, label="Distance", color="blue")
+            plt.xlabel("time")
+            plt.title("Distance", fontsize=8, color="blue")
+            plt.legend()
 
         if power.shape[2] >= 3:
-            plt.subplot(414)
-            plt.plot(move_weight_i, label = "Move weight", color="blue")
-            plt.xlabel('time')
-            plt.title("Move weight", fontsize=8, color='blue')   
+            plt.subplot(rows, 1, idx)
+            idx += 1
+            plt.plot(move_weight_i, label="Move weight", color="blue")
+            plt.xlabel("time")
+            plt.title("Move weight", fontsize=8, color="blue")
             plt.legend()
-            plt.tight_layout()
 
-        # plotting the line rr points 
-        # plt.subplot(412)
-        # plt.plot(rr_i, label = "RR", color="green")
-        # plt.plot(pre_rr_i, label = "pre RR", color="orange")
-        # plt.xlabel('time')
-        # plt.ylabel('Breath rate')
-        # plt.title("breath rate", fontsize=8, color='red')   
-        # plt.legend()
+        plt.tight_layout()
 
         # function to show the plot
         plt.savefig("{0}/{1}.png".format(result_folder, tmp_path_array[i]))
